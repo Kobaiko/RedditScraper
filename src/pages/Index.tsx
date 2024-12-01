@@ -75,7 +75,7 @@ const Index = () => {
     try {
       setIsLoading(true);
       const response = await fetch(
-        `https://www.reddit.com/search.json?q=${encodeURIComponent(searchQuery)}&limit=100`
+        `https://www.reddit.com/search.json?q=${encodeURIComponent(searchQuery)}&limit=100&sort=relevance`
       );
       
       if (!response.ok) {
@@ -95,28 +95,50 @@ const Index = () => {
           score: post.data.score,
           num_comments: post.data.num_comments,
           created_utc: post.data.created_utc,
-          sentiment: calculateSentiment(post.data.score, post.data.upvote_ratio || 0.5)
+          upvote_ratio: post.data.upvote_ratio || 0.5
         })),
         overall_sentiment: { positive: 0, negative: 0, neutral: 0 },
         subreddit_sentiment: {}
       };
 
-      // Calculate sentiments
-      processedData.posts.forEach(post => {
-        // Update overall sentiment
-        processedData.overall_sentiment[post.sentiment]++;
+      // Calculate median score for normalization
+      const scores = processedData.posts.map(post => post.score);
+      const median = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
+      const averageUpvoteRatio = processedData.posts.reduce((acc, post) => acc + post.upvote_ratio, 0) / processedData.posts.length;
 
-        // Update subreddit sentiment
-        if (!processedData.subreddit_sentiment[post.subreddit]) {
-          processedData.subreddit_sentiment[post.subreddit] = {
-            positive: 0,
-            negative: 0,
-            neutral: 0,
-            total: 0
-          };
+      // Assign sentiment to each post
+      processedData.posts = processedData.posts.map(post => ({
+        ...post,
+        sentiment: calculateSentiment(post.score, post.upvote_ratio, median, averageUpvoteRatio)
+      }));
+
+      // Calculate sentiments per subreddit
+      const subredditPosts = {};
+      processedData.posts.forEach(post => {
+        if (!subredditPosts[post.subreddit]) {
+          subredditPosts[post.subreddit] = [];
         }
-        processedData.subreddit_sentiment[post.subreddit][post.sentiment]++;
-        processedData.subreddit_sentiment[post.subreddit].total++;
+        subredditPosts[post.subreddit].push(post);
+      });
+
+      // Calculate sentiment statistics
+      Object.entries(subredditPosts).forEach(([subreddit, posts]) => {
+        const total = posts.length;
+        const sentiments = posts.reduce((acc, post) => {
+          acc[post.sentiment]++;
+          return acc;
+        }, { positive: 0, negative: 0, neutral: 0 });
+
+        processedData.subreddit_sentiment[subreddit] = {
+          ...sentiments,
+          total,
+          name: subreddit
+        };
+
+        // Update overall sentiment
+        processedData.overall_sentiment.positive += sentiments.positive;
+        processedData.overall_sentiment.negative += sentiments.negative;
+        processedData.overall_sentiment.neutral += sentiments.neutral;
       });
 
       setSearchResults(processedData);
@@ -288,9 +310,25 @@ const Index = () => {
     return url.includes('/comments/') || url.startsWith('/r/') || url.match(/^https?:\/\/(www\.)?reddit\.com/);
   };
 
-  const calculateSentiment = (score: number, upvoteRatio: number): 'positive' | 'negative' | 'neutral' => {
-    if (score > 10 && upvoteRatio > 0.6) return 'positive';
-    if (score < 0 || upvoteRatio < 0.4) return 'negative';
+  const calculateSentiment = (
+    score: number, 
+    upvoteRatio: number, 
+    medianScore: number,
+    avgUpvoteRatio: number
+  ): 'positive' | 'negative' | 'neutral' => {
+    // Normalize the score using the median
+    const normalizedScore = score / (medianScore || 1);
+    
+    // Calculate sentiment score with adjusted weights
+    const upvoteWeight = upvoteRatio < 0.5 ? -1 : upvoteRatio > 0.75 ? 1 : 0;
+    const scoreWeight = normalizedScore < 0.5 ? -1 : normalizedScore > 1.5 ? 1 : 0;
+    
+    // Combined sentiment score (-2 to 2 range)
+    const sentimentScore = scoreWeight + upvoteWeight;
+
+    // More balanced thresholds
+    if (sentimentScore >= 1) return 'positive';
+    if (sentimentScore <= -1) return 'negative';
     return 'neutral';
   };
 
