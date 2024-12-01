@@ -169,7 +169,7 @@ const Index = () => {
     try {
       setIsLoading(true);
       const response = await fetch(
-        `https://www.reddit.com/search.json?q=${encodeURIComponent(searchQuery)}&limit=100&sort=relevance`
+        `${import.meta.env.VITE_API_URL || 'https://redscrape.netlify.app'}/api/reddit/search/${encodeURIComponent(query)}`
       );
       
       if (!response.ok) {
@@ -177,234 +177,17 @@ const Index = () => {
       }
       
       const data = await response.json();
-      const posts = data.data.children;
-      
-      // Process the data
-      const processedData: ProcessedData = {
-        posts: posts.map(post => ({
-          id: post.data.id,
-          title: post.data.title,
-          url: post.data.permalink,
-          subreddit: post.data.subreddit,
-          score: post.data.score,
-          num_comments: post.data.num_comments,
-          created_utc: post.data.created_utc,
-          upvote_ratio: post.data.upvote_ratio || 0.5,
-          author: post.data.author,
-          awards: post.data.all_awardings,
-          is_top_level: post.data.is_top_level,
-        })),
-        overall_sentiment: { positive: 0, negative: 0, neutral: 0 },
-        subreddit_sentiment: {}
-      };
-
-      // Calculate stats for sentiment analysis
-      const scores = processedData.posts.map(post => post.score);
-      const maxScore = Math.max(...scores);
-      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
-
-      // Process sentiments with more balanced stats
-      const subredditStats: Record<string, SubredditStats> = {};
-      processedData.posts.forEach(post => {
-        if (!subredditStats[post.subreddit]) {
-          subredditStats[post.subreddit] = {
-            maxScore,
-            averageSentiment: avgScore / maxScore // Normalize average
-          };
-        }
-      });
-
-      const calculateSentiment = (post: RedditPost, stats: SubredditStats): SentimentResult => {
-        // Content analysis (60% weight)
-        const contentScore = analyzeContent(post.title);
-        
-        // Engagement analysis (40% weight)
-        const engagementScore = analyzeEngagement(post, stats);
-        
-        // Combine scores with weights
-        let finalScore = (contentScore * 0.6) + (engagementScore * 0.4);
-        
-        // Add small random variation to prevent uniform results
-        const variation = (Math.random() * 0.2) - 0.1; // ±0.1 random variation
-        finalScore = Math.max(-1, Math.min(1, finalScore + variation));
-        
-        return {
-          score: finalScore,
-          category: getCategory(finalScore)
-        };
-      };
-
-      const analyzeContent = (text: string): number => {
-        const words = text.toLowerCase().split(/\s+/);
-        let score = 0;
-        let wordCount = 0;
-
-        // Word sentiment dictionaries with adjusted scores
-        const sentimentScores: Record<string, number> = {
-          // Positive words (reduced intensity)
-          'good': 0.2, 'great': 0.3, 'excellent': 0.4,
-          'amazing': 0.4, 'wonderful': 0.4, 'fantastic': 0.4,
-          'helpful': 0.2, 'best': 0.3, 'better': 0.2,
-          'positive': 0.2, 'success': 0.3, 'successful': 0.3,
-          'win': 0.2, 'winning': 0.2, 'won': 0.2,
-          'support': 0.15, 'supports': 0.15, 'supported': 0.15,
-          'agree': 0.15, 'agreed': 0.15, 'agreement': 0.15,
-          'peace': 0.3, 'peaceful': 0.3, 'solution': 0.2,
-          
-          // Negative words (reduced intensity)
-          'bad': -0.2, 'terrible': -0.4, 'horrible': -0.4,
-          'awful': -0.4, 'poor': -0.2, 'worst': -0.4,
-          'negative': -0.2, 'fail': -0.3, 'failed': -0.3,
-          'failure': -0.3, 'problem': -0.2, 'difficult': -0.15,
-          'against': -0.15, 'hate': -0.4, 'conflict': -0.2,
-          'war': -0.3, 'crisis': -0.3, 'tension': -0.2,
-          'attack': -0.3, 'attacks': -0.3, 'violence': -0.4,
-          'threat': -0.2, 'death': -0.4, 'kill': -0.4,
-          
-          // Intensifiers (reduced multipliers)
-          'very': 1.3, 'extremely': 1.5, 'completely': 1.3,
-          'totally': 1.3, 'absolutely': 1.3, 'really': 1.2,
-          
-          // Negators
-          'not': -1, 'no': -1, "don't": -1, 
-          "doesn't": -1, 'never': -1, 'none': -1
-        };
-
-        let multiplier = 1;
-        let hasNegation = false;
-        
-        for (let i = 0; i < words.length; i++) {
-          const word = words[i];
-          
-          // Check for negations with a 3-word window
-          if (['not', 'no', "don't", "doesn't", 'never', 'none'].includes(word)) {
-            hasNegation = true;
-            continue;
-          }
-          
-          if (word in sentimentScores) {
-            const wordScore = sentimentScores[word];
-            
-            // Handle intensifiers
-            if (wordScore > 1) {
-              multiplier *= wordScore;
-            } else {
-              // Apply negation if within 3 words
-              const actualScore = hasNegation ? -wordScore : wordScore;
-              score += actualScore * multiplier;
-              wordCount++;
-              multiplier = 1;
-              hasNegation = false;
-            }
-          } else {
-            // Reset negation if we've gone 3 words without finding a sentiment word
-            if (i % 3 === 0) hasNegation = false;
-          }
-        }
-
-        // Normalize score based on word count with dampening
-        return wordCount > 0 ? Math.max(-1, Math.min(1, (score / Math.sqrt(wordCount + 1)) * 0.8)) : 0;
-      };
-
-      const analyzeEngagement = (post: RedditPost, stats: SubredditStats): number => {
-        // Score ratio with logarithmic scaling
-        const scoreRatio = Math.log10(post.score + 1) / Math.log10(stats.maxScore + 1);
-        
-        // Upvote ratio (centered at 0.5)
-        const upvoteScore = ((post.upvote_ratio - 0.5) * 2) * 0.8;
-        
-        // Comment engagement (logarithmic scale)
-        const commentScore = Math.log10(post.num_comments + 1) / Math.log10(1000);
-        
-        // Combine scores with weights and dampening
-        return Math.max(-1, Math.min(1,
-          (scoreRatio * 0.4) +
-          (upvoteScore * 0.4) +
-          (commentScore * 0.2)
-        )) * 0.8;
-      };
-
-      const getCategory = (score: number): 'positive' | 'negative' | 'neutral' => {
-        // More balanced thresholds
-        if (score > 0.1) return 'positive';
-        if (score < -0.1) return 'negative';
-        return 'neutral';
-      };
-
-      processedData.posts = processedData.posts.map(post => ({
-        ...post,
-        sentiment: calculateSentiment(post, subredditStats[post.subreddit])
-      }));
-
-      // Group posts by subreddit
-      const subredditPosts = processedData.posts.reduce((acc, post) => {
-        acc[post.subreddit] = acc[post.subreddit] || [];
-        acc[post.subreddit].push(post);
-        return acc;
-      }, {} as Record<string, RedditPost[]>);
-
-      // Initialize overall sentiment counters
-      processedData.overall_sentiment = {
-        positive: 0,
-        negative: 0,
-        neutral: 0
-      };
-
-      // Process subreddit sentiments
-      Object.entries(subredditPosts).forEach(([subreddit, posts]) => {
-        const total = posts.length;
-        const sentiments = {
-          positive: 0,
-          negative: 0,
-          neutral: 0
-        };
-
-        // Count sentiments
-        posts.forEach(post => {
-          const category = post.sentiment.category;
-          if (category === 'positive') {
-            sentiments.positive++;
-          } else if (category === 'negative') {
-            sentiments.negative++;
-          } else {
-            sentiments.neutral++;
-          }
-        });
-
-        // Calculate percentages
-        processedData.subreddit_sentiment[subreddit] = {
-          positive: (sentiments.positive / total) * 100,
-          negative: (sentiments.negative / total) * 100,
-          neutral: (sentiments.neutral / total) * 100,
-          total
-        };
-
-        // Add to overall sentiment
-        processedData.overall_sentiment.positive += sentiments.positive;
-        processedData.overall_sentiment.negative += sentiments.negative;
-        processedData.overall_sentiment.neutral += sentiments.neutral;
-      });
-
-      // Calculate overall percentages
-      const totalPosts = processedData.posts.length;
-      if (totalPosts > 0) {
-        processedData.overall_sentiment = {
-          positive: (processedData.overall_sentiment.positive / totalPosts) * 100,
-          negative: (processedData.overall_sentiment.negative / totalPosts) * 100,
-          neutral: (processedData.overall_sentiment.neutral / totalPosts) * 100
-        };
-      }
-
-      setSearchResults(processedData);
-    } catch (err) {
-      console.error('Error fetching Reddit data:', err);
+      setSearchResults(data);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError(error instanceof Error ? error.message : 'An error occurred');
+      setIsLoading(false);
       toast({
         title: "Error",
         description: "Failed to fetch Reddit data. Please try again.",
         variant: "destructive",
       });
-    } finally {
-      setIsLoading(false);
     }
   };
 
