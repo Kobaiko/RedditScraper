@@ -142,34 +142,64 @@ const Index = () => {
         sentiment: calculateSentiment(post, { maxScore: medianScore, averageSentiment: avgComments }),
       }));
 
-      // Calculate sentiments per subreddit
-      const subredditPosts = {};
-      processedData.posts.forEach(post => {
-        if (!subredditPosts[post.subreddit]) {
-          subredditPosts[post.subreddit] = [];
-        }
-        subredditPosts[post.subreddit].push(post);
-      });
+      // Group posts by subreddit
+      const subredditPosts = processedData.posts.reduce((acc, post) => {
+        acc[post.subreddit] = acc[post.subreddit] || [];
+        acc[post.subreddit].push(post);
+        return acc;
+      }, {} as Record<string, RedditPost[]>);
 
-      // Calculate sentiment statistics
+      // Initialize overall sentiment counters
+      processedData.overall_sentiment = {
+        positive: 0,
+        negative: 0,
+        neutral: 0
+      };
+
+      // Process subreddit sentiments
       Object.entries(subredditPosts).forEach(([subreddit, posts]) => {
         const total = posts.length;
-        const sentiments = posts.reduce((acc, post) => {
-          acc[post.sentiment.category]++;
-          return acc;
-        }, { strong_positive: 0, positive: 0, neutral: 0, negative: 0, strong_negative: 0 });
-
-        processedData.subreddit_sentiment[subreddit] = {
-          ...sentiments,
-          total,
-          name: subreddit
+        const sentiments = {
+          positive: 0,
+          negative: 0,
+          neutral: 0
         };
 
-        // Update overall sentiment
-        processedData.overall_sentiment.positive += sentiments.positive + sentiments.strong_positive;
-        processedData.overall_sentiment.negative += sentiments.negative + sentiments.strong_negative;
+        // Count sentiments
+        posts.forEach(post => {
+          const category = post.sentiment.category;
+          if (category === 'strong_positive' || category === 'positive') {
+            sentiments.positive++;
+          } else if (category === 'strong_negative' || category === 'negative') {
+            sentiments.negative++;
+          } else {
+            sentiments.neutral++;
+          }
+        });
+
+        // Calculate percentages
+        processedData.subreddit_sentiment[subreddit] = {
+          positive: (sentiments.positive / total) * 100,
+          negative: (sentiments.negative / total) * 100,
+          neutral: (sentiments.neutral / total) * 100,
+          total
+        };
+
+        // Add to overall sentiment
+        processedData.overall_sentiment.positive += sentiments.positive;
+        processedData.overall_sentiment.negative += sentiments.negative;
         processedData.overall_sentiment.neutral += sentiments.neutral;
       });
+
+      // Calculate overall percentages
+      const totalPosts = processedData.posts.length;
+      if (totalPosts > 0) {
+        processedData.overall_sentiment = {
+          positive: (processedData.overall_sentiment.positive / totalPosts) * 100,
+          negative: (processedData.overall_sentiment.negative / totalPosts) * 100,
+          neutral: (processedData.overall_sentiment.neutral / totalPosts) * 100
+        };
+      }
 
       setSearchResults(processedData);
     } catch (err) {
@@ -252,41 +282,38 @@ const Index = () => {
     const COLORS = ['#10B981', '#EF4444', '#6B7280'];
 
     return (
-      <div className="w-full h-[300px] flex items-center justify-center">
-        <ResponsiveContainer width="100%" height="100%">
-          <RechartsPieChart>
-            <Pie
-              data={data}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={80}
-              paddingAngle={5}
-              dataKey="value"
-              label={({ name, percentage }) => `${name}: ${percentage}%`}
-            >
-              {data.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-              ))}
-            </Pie>
-            <Tooltip
-              content={({ active, payload }) => {
-                if (active && payload && payload.length) {
-                  const data = payload[0].payload;
-                  return (
-                    <div className="bg-white p-2 rounded-lg border shadow-sm">
-                      <p className="text-sm font-medium">
-                        {`${data.name}: ${data.percentage}% (${data.value} posts)`}
-                      </p>
-                    </div>
-                  );
-                }
-                return null;
-              }}
-            />
-            <Legend />
-          </RechartsPieChart>
-        </ResponsiveContainer>
+      <div className="flex flex-col space-y-6">
+        {/* Sentiment Analysis Pie Chart */}
+        <div className="bg-white rounded-lg p-6 shadow-sm">
+          <h2 className="text-xl font-semibold mb-4">Sentiment Analysis</h2>
+          <div className="w-full h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Positive', value: data[0].value, color: '#4ade80' },
+                    { name: 'Negative', value: data[1].value, color: '#f87171' },
+                    { name: 'Neutral', value: data[2].value, color: '#94a3b8' }
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {data.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={
+                      entry.name === 'Positive' ? '#4ade80' :
+                      entry.name === 'Negative' ? '#f87171' : '#94a3b8'
+                    } />
+                  ))}
+                </Pie>
+                <Legend />
+                <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
     );
   };
