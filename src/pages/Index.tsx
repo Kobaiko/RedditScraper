@@ -57,6 +57,14 @@ interface SearchResults {
   discussions: Discussion[];
 }
 
+interface SentimentFactors {
+  score: number;
+  numComments: number;
+  upvoteRatio: number;
+  title: string;
+  created_utc: number;
+}
+
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -101,15 +109,22 @@ const Index = () => {
         subreddit_sentiment: {}
       };
 
-      // Calculate median score for normalization
+      // Calculate averages for normalization
       const scores = processedData.posts.map(post => post.score);
-      const median = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
-      const averageUpvoteRatio = processedData.posts.reduce((acc, post) => acc + post.upvote_ratio, 0) / processedData.posts.length;
+      const comments = processedData.posts.map(post => post.num_comments);
+      const medianScore = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
+      const avgComments = comments.reduce((a, b) => a + b, 0) / comments.length;
 
       // Assign sentiment to each post
       processedData.posts = processedData.posts.map(post => ({
         ...post,
-        sentiment: calculateSentiment(post.score, post.upvote_ratio, median, averageUpvoteRatio)
+        sentiment: calculateSentiment({
+          score: post.score,
+          numComments: post.num_comments,
+          upvoteRatio: post.upvote_ratio,
+          title: post.title,
+          created_utc: post.created_utc
+        }, medianScore, avgComments)
       }));
 
       // Calculate sentiments per subreddit
@@ -310,25 +325,92 @@ const Index = () => {
     return url.includes('/comments/') || url.startsWith('/r/') || url.match(/^https?:\/\/(www\.)?reddit\.com/);
   };
 
-  const calculateSentiment = (
-    score: number, 
-    upvoteRatio: number, 
-    medianScore: number,
-    avgUpvoteRatio: number
-  ): 'positive' | 'negative' | 'neutral' => {
-    // Normalize the score using the median
+  const calculateSentimentScore = ({
+    score,
+    numComments,
+    upvoteRatio,
+    title,
+    created_utc
+  }: SentimentFactors, medianScore: number, avgComments: number): number => {
+    // 1. Engagement Score (-1 to 1)
     const normalizedScore = score / (medianScore || 1);
+    const normalizedComments = numComments / (avgComments || 1);
+    const engagementScore = (normalizedScore * 0.6) + (normalizedComments * 0.4);
     
-    // Calculate sentiment score with adjusted weights
-    const upvoteWeight = upvoteRatio < 0.5 ? -1 : upvoteRatio > 0.75 ? 1 : 0;
-    const scoreWeight = normalizedScore < 0.5 ? -1 : normalizedScore > 1.5 ? 1 : 0;
+    // 2. Content Tone Score (-1 to 1)
+    const toneScore = analyzeTone(title);
     
-    // Combined sentiment score (-2 to 2 range)
-    const sentimentScore = scoreWeight + upvoteWeight;
+    // 3. User Interaction Score (-1 to 1)
+    const interactionScore = calculateInteractionScore(upvoteRatio);
+    
+    // 4. Recency Score (0 to 0.5)
+    const recencyScore = calculateRecencyScore(created_utc);
+    
+    // Weighted combination of all factors
+    return (
+      engagementScore * 0.35 +    // Engagement weight
+      toneScore * 0.30 +          // Content tone weight
+      interactionScore * 0.25 +   // User interaction weight
+      recencyScore * 0.10         // Recency weight
+    );
+  };
 
-    // More balanced thresholds
-    if (sentimentScore >= 1) return 'positive';
-    if (sentimentScore <= -1) return 'negative';
+  const analyzeTone = (text: string): number => {
+    const positiveWords = ['good', 'great', 'awesome', 'amazing', 'love', 'best', 'excellent', 'perfect', 'helpful', 'recommended'];
+    const negativeWords = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'poor', 'disappointing', 'avoid', 'waste'];
+    
+    const lowercaseText = text.toLowerCase();
+    let score = 0;
+    
+    // Check for positive/negative words
+    positiveWords.forEach(word => {
+      if (lowercaseText.includes(word)) score += 0.2;
+    });
+    
+    negativeWords.forEach(word => {
+      if (lowercaseText.includes(word)) score -= 0.2;
+    });
+    
+    // Check for punctuation sentiment
+    if (text.includes('!')) score += 0.1;
+    if (text.includes('?')) score -= 0.05;
+    if (text.includes('...')) score -= 0.1;
+    
+    // Clamp between -1 and 1
+    return Math.max(-1, Math.min(1, score));
+  };
+
+  const calculateInteractionScore = (upvoteRatio: number): number => {
+    // Convert upvote ratio to a -1 to 1 scale
+    return ((upvoteRatio - 0.5) * 2);
+  };
+
+  const calculateRecencyScore = (created_utc: number): number => {
+    const now = Date.now() / 1000; // Convert to seconds
+    const age = now - created_utc;
+    const dayInSeconds = 86400;
+    
+    // Posts newer than 1 day get higher scores
+    if (age < dayInSeconds) {
+      return 0.5;
+    } else if (age < dayInSeconds * 7) {
+      return 0.3;
+    } else if (age < dayInSeconds * 30) {
+      return 0.1;
+    }
+    return 0;
+  };
+
+  const calculateSentiment = (
+    factors: SentimentFactors,
+    medianScore: number,
+    avgComments: number
+  ): 'positive' | 'negative' | 'neutral' => {
+    const sentimentScore = calculateSentimentScore(factors, medianScore, avgComments);
+    
+    // Adjusted thresholds for more balanced distribution
+    if (sentimentScore >= 0.3) return 'positive';
+    if (sentimentScore <= -0.3) return 'negative';
     return 'neutral';
   };
 
