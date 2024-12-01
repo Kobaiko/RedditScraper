@@ -168,8 +168,9 @@ const Index = () => {
   const fetchRedditData = async (query: string) => {
     try {
       setIsLoading(true);
+      const BACKEND_URL = import.meta.env.VITE_API_URL || 'https://reddit-scraper-backend.netlify.app';
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'https://redscrape.netlify.app'}/api/reddit/search/${encodeURIComponent(query)}`
+        `${BACKEND_URL}/api/reddit/search/${encodeURIComponent(query)}`
       );
       
       if (!response.ok) {

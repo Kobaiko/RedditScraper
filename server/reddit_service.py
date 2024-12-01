@@ -18,10 +18,9 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:8081",
-        "https://redscrape.netlify.app",
-        "*"  # Temporarily allow all origins for testing
+        "http://localhost:5173",  # Local development
+        "https://redscrape.netlify.app",  # Production frontend
+        "https://www.redscrape.netlify.app"  # Production frontend with www
     ],
     allow_credentials=True,
     allow_methods=["*"],
