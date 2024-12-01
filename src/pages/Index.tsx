@@ -18,6 +18,9 @@ interface RedditPost {
   url: string;
   selftext: string;
   sentiment: string;
+  author: string;
+  awards: { count: number; is_premium: boolean }[];
+  is_top_level: boolean;
 }
 
 interface SubredditSentiment {
@@ -65,6 +68,21 @@ interface SentimentFactors {
   created_utc: number;
 }
 
+interface SentimentResult {
+  score: number;
+  category: 'strong_positive' | 'positive' | 'neutral' | 'negative' | 'strong_negative';
+  components: {
+    base: number;
+    context: number;
+    weight: number;
+  };
+}
+
+interface SubredditStats {
+  maxScore: number;
+  averageSentiment: number;
+}
+
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -103,7 +121,10 @@ const Index = () => {
           score: post.data.score,
           num_comments: post.data.num_comments,
           created_utc: post.data.created_utc,
-          upvote_ratio: post.data.upvote_ratio || 0.5
+          upvote_ratio: post.data.upvote_ratio || 0.5,
+          author: post.data.author,
+          awards: post.data.all_awardings,
+          is_top_level: post.data.is_top_level,
         })),
         overall_sentiment: { positive: 0, negative: 0, neutral: 0 },
         subreddit_sentiment: {}
@@ -118,13 +139,7 @@ const Index = () => {
       // Assign sentiment to each post
       processedData.posts = processedData.posts.map(post => ({
         ...post,
-        sentiment: calculateSentiment({
-          score: post.score,
-          numComments: post.num_comments,
-          upvoteRatio: post.upvote_ratio,
-          title: post.title,
-          created_utc: post.created_utc
-        }, medianScore, avgComments)
+        sentiment: calculateSentiment(post, { maxScore: medianScore, averageSentiment: avgComments }),
       }));
 
       // Calculate sentiments per subreddit
@@ -140,9 +155,9 @@ const Index = () => {
       Object.entries(subredditPosts).forEach(([subreddit, posts]) => {
         const total = posts.length;
         const sentiments = posts.reduce((acc, post) => {
-          acc[post.sentiment]++;
+          acc[post.sentiment.category]++;
           return acc;
-        }, { positive: 0, negative: 0, neutral: 0 });
+        }, { strong_positive: 0, positive: 0, neutral: 0, negative: 0, strong_negative: 0 });
 
         processedData.subreddit_sentiment[subreddit] = {
           ...sentiments,
@@ -151,8 +166,8 @@ const Index = () => {
         };
 
         // Update overall sentiment
-        processedData.overall_sentiment.positive += sentiments.positive;
-        processedData.overall_sentiment.negative += sentiments.negative;
+        processedData.overall_sentiment.positive += sentiments.positive + sentiments.strong_positive;
+        processedData.overall_sentiment.negative += sentiments.negative + sentiments.strong_negative;
         processedData.overall_sentiment.neutral += sentiments.neutral;
       });
 
@@ -325,93 +340,147 @@ const Index = () => {
     return url.includes('/comments/') || url.startsWith('/r/') || url.match(/^https?:\/\/(www\.)?reddit\.com/);
   };
 
-  const calculateSentimentScore = ({
-    score,
-    numComments,
-    upvoteRatio,
-    title,
-    created_utc
-  }: SentimentFactors, medianScore: number, avgComments: number): number => {
-    // 1. Engagement Score (-1 to 1)
-    const normalizedScore = score / (medianScore || 1);
-    const normalizedComments = numComments / (avgComments || 1);
-    const engagementScore = (normalizedScore * 0.6) + (normalizedComments * 0.4);
+  const calculateSentiment = (post: RedditPost, subredditStats: SubredditStats): SentimentResult => {
+    // 1. Calculate Base Sentiment
+    const baseSentiment = calculateBaseSentiment(post.title);
     
-    // 2. Content Tone Score (-1 to 1)
-    const toneScore = analyzeTone(title);
+    // 2. Calculate Context Adjustments
+    const contextAdjustments = calculateContextAdjustments(post);
     
-    // 3. User Interaction Score (-1 to 1)
-    const interactionScore = calculateInteractionScore(upvoteRatio);
+    // 3. Calculate Weight Factors
+    const weightFactors = calculateWeightFactors(post, subredditStats);
     
-    // 4. Recency Score (0 to 0.5)
-    const recencyScore = calculateRecencyScore(created_utc);
+    // 4. Apply Formula: (Base + Context) * Weight
+    const rawSentiment = (baseSentiment + contextAdjustments) * weightFactors;
     
-    // Weighted combination of all factors
-    return (
-      engagementScore * 0.35 +    // Engagement weight
-      toneScore * 0.30 +          // Content tone weight
-      interactionScore * 0.25 +   // User interaction weight
-      recencyScore * 0.10         // Recency weight
-    );
+    // 5. Clamp final value between -1 and 1
+    const finalSentiment = Math.max(-1, Math.min(1, rawSentiment));
+    
+    // 6. Convert to categorical sentiment
+    return {
+      score: finalSentiment,
+      category: categorizeSentiment(finalSentiment),
+      components: {
+        base: baseSentiment,
+        context: contextAdjustments,
+        weight: weightFactors
+      }
+    };
   };
 
-  const analyzeTone = (text: string): number => {
-    const positiveWords = ['good', 'great', 'awesome', 'amazing', 'love', 'best', 'excellent', 'perfect', 'helpful', 'recommended'];
-    const negativeWords = ['bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'poor', 'disappointing', 'avoid', 'waste'];
+  const calculateBaseSentiment = (text: string): number => {
+    const cleanText = preprocessText(text);
     
-    const lowercaseText = text.toLowerCase();
+    // Lexicon-based scoring (simulating VADER)
+    const lexiconScore = calculateLexiconScore(cleanText);
+    
+    // Custom subreddit-specific terms
+    const customScore = calculateCustomScore(cleanText);
+    
+    // Simplified BERT simulation (keyword-based)
+    const bertScore = calculateBertScore(cleanText);
+    
+    return (lexiconScore * 0.4 + customScore * 0.3 + bertScore * 0.3);
+  };
+
+  const calculateContextAdjustments = (post: RedditPost): number => {
+    // Karma Factor: log scale of score
+    const karmaFactor = Math.log(Math.max(1, post.score)) * 0.1;
+    
+    // Award Factor
+    const awardFactor = post.awards.reduce((sum, award) => 
+      sum + (award.is_premium ? 0.15 : 0.05) * award.count, 0);
+    
+    // Thread Position
+    const threadPosition = post.is_top_level ? 0.1 : 0.05;
+    
+    return karmaFactor + awardFactor + threadPosition;
+  };
+
+  const calculateWeightFactors = (post: RedditPost, stats: SubredditStats): number => {
+    // Credibility (simplified)
+    const credibility = Math.min(1, post.score / stats.maxScore);
+    
+    // Time Decay
+    const daysOld = (Date.now() / 1000 - post.created_utc) / (24 * 60 * 60);
+    const timeDecay = 1 / (1 + daysOld * 0.1);
+    
+    // Subreddit baseline (normalized)
+    const subredditBaseline = stats.averageSentiment;
+    
+    return credibility * timeDecay * (subredditBaseline + 1);
+  };
+
+  const preprocessText = (text: string): string => {
+    return text
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, '')  // Remove URLs
+      .replace(/[^\w\s!?.,]/g, '')     // Keep basic punctuation
+      .replace(/(!{2,}|\?{2,}|\.{2,})/g, '$1')  // Normalize repeated punctuation
+      .trim();
+  };
+
+  const calculateLexiconScore = (text: string): number => {
+    const positiveWords = new Set([
+      'good', 'great', 'awesome', 'amazing', 'love', 'excellent', 'perfect',
+      'happy', 'best', 'wonderful', 'fantastic', 'superior', 'outstanding'
+    ]);
+    
+    const negativeWords = new Set([
+      'bad', 'terrible', 'awful', 'horrible', 'hate', 'worst', 'poor',
+      'disappointing', 'inferior', 'mediocre', 'useless', 'waste'
+    ]);
+    
+    const words = text.split(/\s+/);
     let score = 0;
     
-    // Check for positive/negative words
-    positiveWords.forEach(word => {
-      if (lowercaseText.includes(word)) score += 0.2;
+    words.forEach(word => {
+      if (positiveWords.has(word)) score += 1;
+      if (negativeWords.has(word)) score -= 1;
     });
     
-    negativeWords.forEach(word => {
-      if (lowercaseText.includes(word)) score -= 0.2;
-    });
-    
-    // Check for punctuation sentiment
-    if (text.includes('!')) score += 0.1;
-    if (text.includes('?')) score -= 0.05;
-    if (text.includes('...')) score -= 0.1;
-    
-    // Clamp between -1 and 1
-    return Math.max(-1, Math.min(1, score));
+    return score / Math.max(words.length, 1);
   };
 
-  const calculateInteractionScore = (upvoteRatio: number): number => {
-    // Convert upvote ratio to a -1 to 1 scale
-    return ((upvoteRatio - 0.5) * 2);
+  const calculateCustomScore = (text: string): number => {
+    // Subreddit-specific terminology (can be expanded)
+    const customTerms = {
+      'upvoted': 0.5,
+      'downvoted': -0.5,
+      'thanks': 0.3,
+      'helpful': 0.4,
+      'agree': 0.3,
+      'disagree': -0.3,
+      'wrong': -0.4,
+      'correct': 0.4
+    };
+    
+    return Object.entries(customTerms).reduce((score, [term, value]) => {
+      return score + (text.includes(term) ? value : 0);
+    }, 0);
   };
 
-  const calculateRecencyScore = (created_utc: number): number => {
-    const now = Date.now() / 1000; // Convert to seconds
-    const age = now - created_utc;
-    const dayInSeconds = 86400;
+  const calculateBertScore = (text: string): number => {
+    // Simplified BERT simulation using keyword patterns
+    const patterns = [
+      { regex: /\b(highly|strongly|definitely|absolutely)\b.*\b(recommend|suggest)\b/i, score: 0.8 },
+      { regex: /\b(never|don't|do not)\b.*\b(recommend|suggest)\b/i, score: -0.8 },
+      { regex: /\b(better than|superior to|prefer)\b/i, score: 0.6 },
+      { regex: /\b(worse than|inferior to)\b/i, score: -0.6 },
+      { regex: /\b(not|isn't|ain't|aren't)\b.*\b(good|great|nice)\b/i, score: -0.5 },
+    ];
     
-    // Posts newer than 1 day get higher scores
-    if (age < dayInSeconds) {
-      return 0.5;
-    } else if (age < dayInSeconds * 7) {
-      return 0.3;
-    } else if (age < dayInSeconds * 30) {
-      return 0.1;
-    }
-    return 0;
+    return patterns.reduce((score, pattern) => {
+      return score + (pattern.regex.test(text) ? pattern.score : 0);
+    }, 0);
   };
 
-  const calculateSentiment = (
-    factors: SentimentFactors,
-    medianScore: number,
-    avgComments: number
-  ): 'positive' | 'negative' | 'neutral' => {
-    const sentimentScore = calculateSentimentScore(factors, medianScore, avgComments);
-    
-    // Adjusted thresholds for more balanced distribution
-    if (sentimentScore >= 0.3) return 'positive';
-    if (sentimentScore <= -0.3) return 'negative';
-    return 'neutral';
+  const categorizeSentiment = (score: number): 'strong_positive' | 'positive' | 'neutral' | 'negative' | 'strong_negative' => {
+    if (score >= 0.6) return 'strong_positive';
+    if (score >= 0.2) return 'positive';
+    if (score >= -0.2) return 'neutral';
+    if (score >= -0.6) return 'negative';
+    return 'strong_negative';
   };
 
   return (
@@ -546,11 +615,11 @@ const Index = () => {
                           <span>↑ {post.score}</span>
                           <span>💬 {post.num_comments}</span>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            post.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
-                            post.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
+                            post.sentiment.category === 'positive' ? 'bg-green-100 text-green-800' :
+                            post.sentiment.category === 'negative' ? 'bg-red-100 text-red-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
-                            {post.sentiment.charAt(0).toUpperCase() + post.sentiment.slice(1)}
+                            {post.sentiment.category.charAt(0).toUpperCase() + post.sentiment.category.slice(1)}
                           </span>
                         </div>
                       </div>
@@ -600,11 +669,11 @@ const Index = () => {
                           <span>↑ {post.score}</span>
                           <span>💬 {post.num_comments}</span>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            post.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
-                            post.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
+                            post.sentiment.category === 'positive' ? 'bg-green-100 text-green-800' :
+                            post.sentiment.category === 'negative' ? 'bg-red-100 text-red-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
-                            {post.sentiment.charAt(0).toUpperCase() + post.sentiment.slice(1)}
+                            {post.sentiment.category.charAt(0).toUpperCase() + post.sentiment.category.slice(1)}
                           </span>
                         </div>
                       </div>
