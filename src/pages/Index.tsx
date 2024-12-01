@@ -372,24 +372,13 @@ const Index = () => {
                   Most Popular Discussions
                 </h2>
                 <div className="space-y-4">
-                  {(() => {
-                    const filteredPosts = [...searchResults.posts]
-                      .sort((a, b) => b.score - a.score)
-                      .filter(post => isRedditPost(post.url))
-                      .slice(0, 10);
-
-                    if (filteredPosts.length === 0) {
-                      return (
-                        <div className="text-center py-8 text-gray-500">
-                          No discussions found
-                        </div>
-                      );
-                    }
-
-                    return filteredPosts.map((post) => (
+                  {searchResults.posts
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 10)
+                    .map((post) => (
                       <div key={post.id} className="border-b pb-3 last:border-b-0">
                         <a 
-                          href={post.url.startsWith('http') ? post.url : `https://reddit.com${post.url}`}
+                          href={`https://reddit.com${post.url}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="font-medium hover:text-blue-600 block mb-1"
@@ -416,8 +405,7 @@ const Index = () => {
                           </span>
                         </div>
                       </div>
-                    ));
-                  })()}
+                    ))}
                 </div>
               </div>
 
