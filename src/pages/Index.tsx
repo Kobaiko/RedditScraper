@@ -96,42 +96,57 @@ interface ProcessedData {
 const SentimentPieChart = ({ data }: { data: ProcessedData }) => {
   if (!data?.overall_sentiment) return null;
 
+  const total = Object.values(data.overall_sentiment).reduce((a, b) => a + b, 0);
+  if (total === 0) return null;
+
   const chartData = [
-    { name: 'Positive', value: data.overall_sentiment.positive || 0 },
-    { name: 'Negative', value: data.overall_sentiment.negative || 0 },
-    { name: 'Neutral', value: data.overall_sentiment.neutral || 0 }
-  ];
+    {
+      name: 'Positive',
+      value: Math.round((data.overall_sentiment.positive / total) * 100),
+      color: '#4ade80'
+    },
+    {
+      name: 'Negative',
+      value: Math.round((data.overall_sentiment.negative / total) * 100),
+      color: '#f87171'
+    },
+    {
+      name: 'Neutral',
+      value: Math.round((data.overall_sentiment.neutral / total) * 100),
+      color: '#94a3b8'
+    }
+  ].filter(item => item.value > 0);
 
   return (
-    <div className="bg-white rounded-lg p-6 shadow-sm">
-      <h2 className="text-xl font-semibold mb-4">Sentiment Analysis</h2>
-      <div className="w-full h-64">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={chartData}
-              cx="50%"
-              cy="50%"
-              labelLine={false}
-              outerRadius={80}
-              fill="#8884d8"
-              dataKey="value"
-            >
-              {chartData.map((entry, index) => (
-                <Cell 
-                  key={`cell-${index}`} 
-                  fill={entry.name === 'Positive' ? '#4ade80' : entry.name === 'Negative' ? '#f87171' : '#94a3b8'}
-                />
-              ))}
-            </Pie>
-            <Tooltip 
-              formatter={(value: number) => `${value.toFixed(1)}%`}
-              contentStyle={{ backgroundColor: 'white', borderRadius: '4px', padding: '8px' }}
-            />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
+    <div className="w-full h-[300px] flex items-center justify-center">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={chartData}
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={80}
+            paddingAngle={5}
+            dataKey="value"
+            label={({ name, value }) => `${name}: ${value}%`}
+          >
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Pie>
+          <Tooltip 
+            formatter={(value: number) => `${value}%`}
+            contentStyle={{
+              backgroundColor: 'white',
+              borderRadius: '8px',
+              padding: '8px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+            }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
     </div>
   );
 };
@@ -223,9 +238,9 @@ const Index = () => {
         // Count sentiments
         posts.forEach(post => {
           const category = post.sentiment.category;
-          if (category === 'strong_positive' || category === 'positive') {
+          if (category === 'positive') {
             sentiments.positive++;
-          } else if (category === 'strong_negative' || category === 'negative') {
+          } else if (category === 'negative') {
             sentiments.negative++;
           } else {
             sentiments.neutral++;
@@ -300,60 +315,110 @@ const Index = () => {
     }
   };
 
-  const calculateSentiment = (post: RedditPost, subredditStats: SubredditStats): SentimentResult => {
-    // 1. Calculate Base Sentiment
-    const baseSentiment = calculateBaseSentiment(post.title);
+  const calculateSentiment = (post: RedditPost, stats: SubredditStats): SentimentResult => {
+    // Content analysis
+    const contentScore = analyzeContent(post.title);
     
-    // 2. Calculate Context Adjustments
-    const contextAdjustments = calculateContextAdjustments(post);
+    // Engagement analysis
+    const engagementScore = analyzeEngagement(post, stats);
     
-    // 3. Calculate Weight Factors
-    const weightFactors = calculateWeightFactors(post, subredditStats);
-    
-    // 4. Apply Formula: (Base + Context) * Weight, with dampening
-    const rawSentiment = (baseSentiment + contextAdjustments) * weightFactors * 0.7; // Dampen the effect
-    
-    // 5. Clamp final value between -1 and 1
-    const finalSentiment = Math.max(-1, Math.min(1, rawSentiment));
-    
-    // 6. Add randomization for more natural distribution
-    const jitter = (Math.random() * 0.2) - 0.1; // Add ±0.1 random variation
-    const finalScore = Math.max(-1, Math.min(1, finalSentiment + jitter));
+    // Final score calculation
+    const finalScore = (contentScore * 0.7) + (engagementScore * 0.3);
     
     return {
       score: finalScore,
-      category: categorizeSentiment(finalScore),
-      components: {
-        base: baseSentiment,
-        context: contextAdjustments,
-        weight: weightFactors
-      }
+      category: getCategory(finalScore)
     };
   };
 
-  const calculateBaseSentiment = (text: string): number => {
-    const cleanText = preprocessText(text);
+  const analyzeContent = (text: string): number => {
+    const words = text.toLowerCase().split(/\s+/);
+    let score = 0;
+    let wordCount = 0;
+
+    // Word sentiment dictionaries
+    const sentimentScores: Record<string, number> = {
+      // Positive words
+      'good': 0.3, 'great': 0.4, 'excellent': 0.5,
+      'amazing': 0.5, 'wonderful': 0.5, 'fantastic': 0.5,
+      'helpful': 0.3, 'best': 0.4, 'better': 0.3,
+      'positive': 0.3, 'success': 0.4, 'successful': 0.4,
+      'win': 0.3, 'winning': 0.3, 'won': 0.3,
+      'support': 0.2, 'supports': 0.2, 'supported': 0.2,
+      'agree': 0.2, 'agreed': 0.2, 'agreement': 0.2,
+      'peace': 0.4, 'peaceful': 0.4, 'solution': 0.3,
+      
+      // Negative words
+      'bad': -0.3, 'terrible': -0.5, 'horrible': -0.5,
+      'awful': -0.5, 'poor': -0.3, 'worst': -0.5,
+      'negative': -0.3, 'fail': -0.4, 'failed': -0.4,
+      'failure': -0.4, 'problem': -0.3, 'difficult': -0.2,
+      'against': -0.2, 'hate': -0.5, 'conflict': -0.3,
+      'war': -0.4, 'crisis': -0.4, 'tension': -0.3,
+      'attack': -0.4, 'attacks': -0.4, 'violence': -0.5,
+      'threat': -0.3, 'death': -0.5, 'kill': -0.5,
+      
+      // Intensifiers
+      'very': 1.5, 'extremely': 2.0, 'completely': 1.5,
+      'totally': 1.5, 'absolutely': 1.5, 'really': 1.2,
+      
+      // Negators
+      'not': -1, 'no': -1, "don't": -1, 
+      "doesn't": -1, 'never': -1, 'none': -1
+    };
+
+    let multiplier = 1;
     
-    // Lexicon-based scoring with more balanced weights
-    const lexiconScore = calculateLexiconScore(cleanText) * 0.6; // Reduce impact
-    
-    // Custom subreddit-specific terms
-    const customScore = calculateCustomScore(cleanText) * 0.4; // Reduce impact
-    
-    // Simplified BERT simulation (keyword-based)
-    const bertScore = calculateBertScore(cleanText) * 0.4; // Reduce impact
-    
-    // Average the scores with dampening
-    return (lexiconScore + customScore + bertScore) / 3;
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      
+      // Check for negations
+      if (['not', 'no', "don't", "doesn't", 'never', 'none'].includes(word)) {
+        multiplier = -1;
+        continue;
+      }
+      
+      // Apply sentiment scoring
+      if (word in sentimentScores) {
+        const wordScore = sentimentScores[word];
+        
+        // Handle intensifiers
+        if (wordScore > 1) {
+          multiplier *= wordScore;
+        } else {
+          score += wordScore * multiplier;
+          wordCount++;
+          multiplier = 1; // Reset multiplier after applying
+        }
+      }
+    }
+
+    // Normalize score based on word count
+    return wordCount > 0 ? Math.max(-1, Math.min(1, score / Math.sqrt(wordCount))) : 0;
   };
 
-  const categorizeSentiment = (score: number): 'strong_positive' | 'positive' | 'neutral' | 'negative' | 'strong_negative' => {
-    // More balanced thresholds
-    if (score >= 0.5) return 'strong_positive';
-    if (score >= 0.2) return 'positive';
-    if (score > -0.2) return 'neutral';
-    if (score > -0.5) return 'negative';
-    return 'strong_negative';
+  const analyzeEngagement = (post: RedditPost, stats: SubredditStats): number => {
+    // Score ratio (compared to max score in dataset)
+    const scoreRatio = post.score / stats.maxScore;
+    
+    // Upvote ratio (0.5 is neutral)
+    const upvoteScore = (post.upvote_ratio - 0.5) * 2;
+    
+    // Comment engagement (log scale)
+    const commentScore = Math.log10(post.num_comments + 1) / Math.log10(1000);
+    
+    // Combine scores with weights
+    return Math.max(-1, Math.min(1,
+      (scoreRatio * 0.5) +
+      (upvoteScore * 0.3) +
+      (commentScore * 0.2)
+    ));
+  };
+
+  const getCategory = (score: number): 'positive' | 'negative' | 'neutral' => {
+    if (score > 0.15) return 'positive';
+    if (score < -0.15) return 'negative';
+    return 'neutral';
   };
 
   const COLORS = {
