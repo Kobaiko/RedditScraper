@@ -74,19 +74,54 @@ const Index = () => {
   const fetchRedditData = async (query: string) => {
     try {
       setIsLoading(true);
-      const response = await fetch(`http://localhost:8000/api/reddit/search/${query}`);
-      const data = await response.json();
+      const response = await fetch(
+        `https://www.reddit.com/search.json?q=${encodeURIComponent(searchQuery)}&limit=100`
+      );
       
-      if (data.posts) {
-        setSearchResults({
-          posts: data.posts,
-          overall_sentiment: data.overall_sentiment,
-          subreddit_sentiment: data.subreddit_sentiment,
-          total: data.total
-        });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Error fetching Reddit data:', error);
+      
+      const data = await response.json();
+      const posts = data.data.children;
+      
+      // Process the data
+      const processedData = {
+        posts: posts.map(post => ({
+          id: post.data.id,
+          title: post.data.title,
+          url: post.data.permalink,
+          subreddit: post.data.subreddit,
+          score: post.data.score,
+          num_comments: post.data.num_comments,
+          created_utc: post.data.created_utc,
+          sentiment: calculateSentiment(post.data.score, post.data.upvote_ratio || 0.5)
+        })),
+        overall_sentiment: { positive: 0, negative: 0, neutral: 0 },
+        subreddit_sentiment: {}
+      };
+
+      // Calculate sentiments
+      processedData.posts.forEach(post => {
+        // Update overall sentiment
+        processedData.overall_sentiment[post.sentiment]++;
+
+        // Update subreddit sentiment
+        if (!processedData.subreddit_sentiment[post.subreddit]) {
+          processedData.subreddit_sentiment[post.subreddit] = {
+            positive: 0,
+            negative: 0,
+            neutral: 0,
+            total: 0
+          };
+        }
+        processedData.subreddit_sentiment[post.subreddit][post.sentiment]++;
+        processedData.subreddit_sentiment[post.subreddit].total++;
+      });
+
+      setSearchResults(processedData);
+    } catch (err) {
+      console.error('Error fetching Reddit data:', err);
       toast({
         title: "Error",
         description: "Failed to fetch Reddit data. Please try again.",
@@ -112,19 +147,7 @@ const Index = () => {
     setError(null);
     
     try {
-      const response = await fetch(`http://localhost:8000/api/reddit/search/${encodeURIComponent(searchQuery)}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        if (response.status === 429) {
-          throw new Error(`Rate limit exceeded. ${errorData.detail}`);
-        }
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      if (!data || !data.overall_sentiment) {
-        throw new Error('Invalid response data');
-      }
-      setSearchResults(data);
+      await fetchRedditData(searchQuery);
     } catch (err) {
       console.error('Error fetching data:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch data';
@@ -263,6 +286,12 @@ const Index = () => {
   const isRedditPost = (url: string): boolean => {
     // Check if it's a Reddit post URL
     return url.includes('/comments/') || url.startsWith('/r/') || url.match(/^https?:\/\/(www\.)?reddit\.com/);
+  };
+
+  const calculateSentiment = (score: number, upvoteRatio: number): 'positive' | 'negative' | 'neutral' => {
+    if (score > 10 && upvoteRatio > 0.6) return 'positive';
+    if (score < 0 || upvoteRatio < 0.4) return 'negative';
+    return 'neutral';
   };
 
   return (
