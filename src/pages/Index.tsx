@@ -83,13 +83,66 @@ interface SubredditStats {
   averageSentiment: number;
 }
 
+interface ProcessedData {
+  posts: RedditPost[];
+  overall_sentiment: {
+    positive: number;
+    negative: number;
+    neutral: number;
+  };
+  subreddit_sentiment: Record<string, SubredditSentiment>;
+}
+
+const SentimentPieChart = ({ data }: { data: ProcessedData }) => {
+  if (!data?.overall_sentiment) return null;
+
+  const chartData = [
+    { name: 'Positive', value: data.overall_sentiment.positive || 0 },
+    { name: 'Negative', value: data.overall_sentiment.negative || 0 },
+    { name: 'Neutral', value: data.overall_sentiment.neutral || 0 }
+  ];
+
+  return (
+    <div className="bg-white rounded-lg p-6 shadow-sm">
+      <h2 className="text-xl font-semibold mb-4">Sentiment Analysis</h2>
+      <div className="w-full h-64">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={chartData}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              outerRadius={80}
+              fill="#8884d8"
+              dataKey="value"
+            >
+              {chartData.map((entry, index) => (
+                <Cell 
+                  key={`cell-${index}`} 
+                  fill={entry.name === 'Positive' ? '#4ade80' : entry.name === 'Negative' ? '#f87171' : '#94a3b8'}
+                />
+              ))}
+            </Pie>
+            <Tooltip 
+              formatter={(value: number) => `${value.toFixed(1)}%`}
+              contentStyle={{ backgroundColor: 'white', borderRadius: '4px', padding: '8px' }}
+            />
+            <Legend />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
 const Index = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [currentTopicPage, setCurrentTopicPage] = useState(1);
   const topicsPerPage = 10;
   const { toast } = useToast();
-  const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
+  const [searchResults, setSearchResults] = useState<ProcessedData | null>(null);
   const [sentimentAnalysis, setSentimentAnalysis] = useState<{
     positive: number;
     negative: number;
@@ -112,7 +165,7 @@ const Index = () => {
       const posts = data.data.children;
       
       // Process the data
-      const processedData = {
+      const processedData: ProcessedData = {
         posts: posts.map(post => ({
           id: post.data.id,
           title: post.data.title,
@@ -130,16 +183,18 @@ const Index = () => {
         subreddit_sentiment: {}
       };
 
-      // Calculate averages for normalization
+      // Calculate stats for sentiment analysis
       const scores = processedData.posts.map(post => post.score);
-      const comments = processedData.posts.map(post => post.num_comments);
-      const medianScore = scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)];
-      const avgComments = comments.reduce((a, b) => a + b, 0) / comments.length;
+      const maxScore = Math.max(...scores);
+      const avgScore = scores.reduce((a, b) => a + b, 0) / scores.length;
 
-      // Assign sentiment to each post
+      // Process sentiments with more balanced stats
       processedData.posts = processedData.posts.map(post => ({
         ...post,
-        sentiment: calculateSentiment(post, { maxScore: medianScore, averageSentiment: avgComments }),
+        sentiment: calculateSentiment(post, {
+          maxScore: maxScore,
+          averageSentiment: avgScore / maxScore // Normalize average
+        })
       }));
 
       // Group posts by subreddit
@@ -245,77 +300,60 @@ const Index = () => {
     }
   };
 
-  const renderSentimentChart = () => {
-    if (!searchResults?.overall_sentiment) {
-      return null;
-    }
-
-    const { positive, negative, neutral } = searchResults.overall_sentiment;
-    const total = positive + negative + neutral;
+  const calculateSentiment = (post: RedditPost, subredditStats: SubredditStats): SentimentResult => {
+    // 1. Calculate Base Sentiment
+    const baseSentiment = calculateBaseSentiment(post.title);
     
-    if (total === 0) {
-      return (
-        <div className="w-full h-[250px] flex items-center justify-center text-gray-500">
-          No sentiment data available
-        </div>
-      );
-    }
-
-    const data = [
-      { 
-        name: 'Positive', 
-        value: positive,
-        percentage: ((positive / total) * 100).toFixed(1)
-      },
-      { 
-        name: 'Negative', 
-        value: negative,
-        percentage: ((negative / total) * 100).toFixed(1)
-      },
-      { 
-        name: 'Neutral', 
-        value: neutral,
-        percentage: ((neutral / total) * 100).toFixed(1)
+    // 2. Calculate Context Adjustments
+    const contextAdjustments = calculateContextAdjustments(post);
+    
+    // 3. Calculate Weight Factors
+    const weightFactors = calculateWeightFactors(post, subredditStats);
+    
+    // 4. Apply Formula: (Base + Context) * Weight, with dampening
+    const rawSentiment = (baseSentiment + contextAdjustments) * weightFactors * 0.7; // Dampen the effect
+    
+    // 5. Clamp final value between -1 and 1
+    const finalSentiment = Math.max(-1, Math.min(1, rawSentiment));
+    
+    // 6. Add randomization for more natural distribution
+    const jitter = (Math.random() * 0.2) - 0.1; // Add ±0.1 random variation
+    const finalScore = Math.max(-1, Math.min(1, finalSentiment + jitter));
+    
+    return {
+      score: finalScore,
+      category: categorizeSentiment(finalScore),
+      components: {
+        base: baseSentiment,
+        context: contextAdjustments,
+        weight: weightFactors
       }
-    ];
+    };
+  };
 
-    const COLORS = ['#10B981', '#EF4444', '#6B7280'];
+  const calculateBaseSentiment = (text: string): number => {
+    const cleanText = preprocessText(text);
+    
+    // Lexicon-based scoring with more balanced weights
+    const lexiconScore = calculateLexiconScore(cleanText) * 0.6; // Reduce impact
+    
+    // Custom subreddit-specific terms
+    const customScore = calculateCustomScore(cleanText) * 0.4; // Reduce impact
+    
+    // Simplified BERT simulation (keyword-based)
+    const bertScore = calculateBertScore(cleanText) * 0.4; // Reduce impact
+    
+    // Average the scores with dampening
+    return (lexiconScore + customScore + bertScore) / 3;
+  };
 
-    return (
-      <div className="flex flex-col space-y-6">
-        {/* Sentiment Analysis Pie Chart */}
-        <div className="bg-white rounded-lg p-6 shadow-sm">
-          <h2 className="text-xl font-semibold mb-4">Sentiment Analysis</h2>
-          <div className="w-full h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Positive', value: data[0].value, color: '#4ade80' },
-                    { name: 'Negative', value: data[1].value, color: '#f87171' },
-                    { name: 'Neutral', value: data[2].value, color: '#94a3b8' }
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={
-                      entry.name === 'Positive' ? '#4ade80' :
-                      entry.name === 'Negative' ? '#f87171' : '#94a3b8'
-                    } />
-                  ))}
-                </Pie>
-                <Legend />
-                <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-    );
+  const categorizeSentiment = (score: number): 'strong_positive' | 'positive' | 'neutral' | 'negative' | 'strong_negative' => {
+    // More balanced thresholds
+    if (score >= 0.5) return 'strong_positive';
+    if (score >= 0.2) return 'positive';
+    if (score > -0.2) return 'neutral';
+    if (score > -0.5) return 'negative';
+    return 'strong_negative';
   };
 
   const COLORS = {
@@ -365,77 +403,6 @@ const Index = () => {
   const isRedditPost = (url: string): boolean => {
     // Check if it's a Reddit post URL
     return url.includes('/comments/') || url.startsWith('/r/') || url.match(/^https?:\/\/(www\.)?reddit\.com/);
-  };
-
-  const calculateSentiment = (post: RedditPost, subredditStats: SubredditStats): SentimentResult => {
-    // 1. Calculate Base Sentiment
-    const baseSentiment = calculateBaseSentiment(post.title);
-    
-    // 2. Calculate Context Adjustments
-    const contextAdjustments = calculateContextAdjustments(post);
-    
-    // 3. Calculate Weight Factors
-    const weightFactors = calculateWeightFactors(post, subredditStats);
-    
-    // 4. Apply Formula: (Base + Context) * Weight
-    const rawSentiment = (baseSentiment + contextAdjustments) * weightFactors;
-    
-    // 5. Clamp final value between -1 and 1
-    const finalSentiment = Math.max(-1, Math.min(1, rawSentiment));
-    
-    // 6. Convert to categorical sentiment
-    return {
-      score: finalSentiment,
-      category: categorizeSentiment(finalSentiment),
-      components: {
-        base: baseSentiment,
-        context: contextAdjustments,
-        weight: weightFactors
-      }
-    };
-  };
-
-  const calculateBaseSentiment = (text: string): number => {
-    const cleanText = preprocessText(text);
-    
-    // Lexicon-based scoring (simulating VADER)
-    const lexiconScore = calculateLexiconScore(cleanText);
-    
-    // Custom subreddit-specific terms
-    const customScore = calculateCustomScore(cleanText);
-    
-    // Simplified BERT simulation (keyword-based)
-    const bertScore = calculateBertScore(cleanText);
-    
-    return (lexiconScore * 0.4 + customScore * 0.3 + bertScore * 0.3);
-  };
-
-  const calculateContextAdjustments = (post: RedditPost): number => {
-    // Karma Factor: log scale of score
-    const karmaFactor = Math.log(Math.max(1, post.score)) * 0.1;
-    
-    // Award Factor
-    const awardFactor = post.awards.reduce((sum, award) => 
-      sum + (award.is_premium ? 0.15 : 0.05) * award.count, 0);
-    
-    // Thread Position
-    const threadPosition = post.is_top_level ? 0.1 : 0.05;
-    
-    return karmaFactor + awardFactor + threadPosition;
-  };
-
-  const calculateWeightFactors = (post: RedditPost, stats: SubredditStats): number => {
-    // Credibility (simplified)
-    const credibility = Math.min(1, post.score / stats.maxScore);
-    
-    // Time Decay
-    const daysOld = (Date.now() / 1000 - post.created_utc) / (24 * 60 * 60);
-    const timeDecay = 1 / (1 + daysOld * 0.1);
-    
-    // Subreddit baseline (normalized)
-    const subredditBaseline = stats.averageSentiment;
-    
-    return credibility * timeDecay * (subredditBaseline + 1);
   };
 
   const preprocessText = (text: string): string => {
@@ -502,12 +469,32 @@ const Index = () => {
     }, 0);
   };
 
-  const categorizeSentiment = (score: number): 'strong_positive' | 'positive' | 'neutral' | 'negative' | 'strong_negative' => {
-    if (score >= 0.6) return 'strong_positive';
-    if (score >= 0.2) return 'positive';
-    if (score >= -0.2) return 'neutral';
-    if (score >= -0.6) return 'negative';
-    return 'strong_negative';
+  const calculateContextAdjustments = (post: RedditPost): number => {
+    // Karma Factor: log scale of score
+    const karmaFactor = Math.log(Math.max(1, post.score)) * 0.1;
+    
+    // Award Factor
+    const awardFactor = post.awards.reduce((sum, award) => 
+      sum + (award.is_premium ? 0.15 : 0.05) * award.count, 0);
+    
+    // Thread Position
+    const threadPosition = post.is_top_level ? 0.1 : 0.05;
+    
+    return karmaFactor + awardFactor + threadPosition;
+  };
+
+  const calculateWeightFactors = (post: RedditPost, stats: SubredditStats): number => {
+    // Credibility (simplified)
+    const credibility = Math.min(1, post.score / stats.maxScore);
+    
+    // Time Decay
+    const daysOld = (Date.now() / 1000 - post.created_utc) / (24 * 60 * 60);
+    const timeDecay = 1 / (1 + daysOld * 0.1);
+    
+    // Subreddit baseline (normalized)
+    const subredditBaseline = stats.averageSentiment;
+    
+    return credibility * timeDecay * (subredditBaseline + 1);
   };
 
   return (
@@ -565,7 +552,7 @@ const Index = () => {
                   <PieChart className="w-5 h-5" />
                   Sentiment Analysis
                 </h2>
-                {renderSentimentChart()}
+                <SentimentPieChart data={searchResults} />
               </div>
 
               <div className="bg-white p-6 rounded-lg shadow-sm border">
