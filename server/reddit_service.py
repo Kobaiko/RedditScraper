@@ -14,10 +14,15 @@ load_dotenv()
 
 app = FastAPI()
 
-# Enable CORS
+# Update CORS settings
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8081", "http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:8081",
+        "https://redscrape.netlify.app",
+        "*"  # Temporarily allow all origins for testing
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
