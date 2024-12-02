@@ -1,0 +1,14 @@
+[Unit]
+Description=Reddit Scraper Backend
+After=network.target
+
+[Service]
+User=www-data
+WorkingDirectory=/path/to/your/backend
+Environment="PATH=/path/to/your/venv/bin"
+Environment="REDDIT_CLIENT_ID=your_client_id"
+Environment="REDDIT_CLIENT_SECRET=your_client_secret"
+ExecStart=/path/to/your/venv/bin/uvicorn reddit_service:app --host 0.0.0.0 --port 8080
+
+[Install]
+WantedBy=multi-user.target
