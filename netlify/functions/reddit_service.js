@@ -1,4 +1,3 @@
-const { PythonShell } = require('python-shell');
 const path = require('path');
 
 exports.handler = async function(event, context) {
@@ -19,15 +18,18 @@ exports.handler = async function(event, context) {
   }
 
   try {
-    // Simple test response first
+    // Simple test response
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
         message: 'Function is working',
         path: event.path,
-        clientId: process.env.REDDIT_CLIENT_ID ? 'Present' : 'Missing',
-        clientSecret: process.env.REDDIT_CLIENT_SECRET ? 'Present' : 'Missing'
+        query: event.path.split('/').pop(),
+        env: {
+          clientId: process.env.REDDIT_CLIENT_ID ? 'Present' : 'Missing',
+          clientSecret: process.env.REDDIT_CLIENT_SECRET ? 'Present' : 'Missing'
+        }
       })
     };
   } catch (error) {
