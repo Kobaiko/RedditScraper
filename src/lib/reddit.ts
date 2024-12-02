@@ -17,6 +17,11 @@ interface RedditResponse {
   }
 }
 
+export const REDDIT_CONFIG = {
+  clientId: import.meta.env.VITE_REDDIT_CLIENT_ID,
+  clientSecret: import.meta.env.VITE_REDDIT_SECRET
+};
+
 const API_URL = import.meta.env.VITE_API_URL || 'https://www.reddit.com';
 
 let accessToken: string | null = null;
@@ -27,14 +32,11 @@ async function getAccessToken() {
     return accessToken;
   }
 
-  const clientId = import.meta.env.VITE_REDDIT_CLIENT_ID;
-  const clientSecret = import.meta.env.VITE_REDDIT_CLIENT_SECRET;
-
   const response = await fetch('https://www.reddit.com/api/v1/access_token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`
+      'Authorization': `Basic ${btoa(`${REDDIT_CONFIG.clientId}:${REDDIT_CONFIG.clientSecret}`)}`
     },
     body: 'grant_type=client_credentials'
   });
