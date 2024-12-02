@@ -143,7 +143,7 @@ const Index = () => {
       setIsLoading(true);
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:8080'
-        : 'https://reddit-scraper-backend.netlify.app';
+        : 'https://redscrape.iamgrowth.co';  // Use the same domain for backend
       
       const response = await fetch(
         `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
