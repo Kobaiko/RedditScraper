@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Search, TrendingUp, MessageSquare, PieChart } from "lucide-react";
+import { Search, TrendingUp, MessageSquare, PieChart as PieChartIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { useToast } from "@/components/ui/use-toast";
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart";
-import { PieChart as ReChartPie, Pie, Cell } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
-import { ResponsiveContainer, PieChart as RechartsPieChart, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Bar } from 'recharts';
+import { BarChart, CartesianGrid, XAxis, YAxis, Bar } from 'recharts';
 
 interface RedditPost {
   id: string;
@@ -96,55 +96,28 @@ interface ProcessedData {
 const SentimentPieChart = ({ data }: { data: ProcessedData }) => {
   if (!data?.overall_sentiment) return null;
 
-  const total = Object.values(data.overall_sentiment).reduce((a, b) => a + b, 0);
-  if (total === 0) return null;
-
   const chartData = [
-    {
-      name: 'Positive',
-      value: Math.round((data.overall_sentiment.positive / total) * 100),
-      color: '#4ade80'
-    },
-    {
-      name: 'Negative',
-      value: Math.round((data.overall_sentiment.negative / total) * 100),
-      color: '#f87171'
-    },
-    {
-      name: 'Neutral',
-      value: Math.round((data.overall_sentiment.neutral / total) * 100),
-      color: '#94a3b8'
-    }
-  ].filter(item => item.value > 0);
+    { name: 'Positive', value: data.overall_sentiment.positive, fill: '#4ade80' },
+    { name: 'Negative', value: data.overall_sentiment.negative, fill: '#f87171' },
+    { name: 'Neutral', value: data.overall_sentiment.neutral, fill: '#94a3b8' }
+  ];
 
   return (
     <div className="w-full h-[300px] flex items-center justify-center">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer>
         <PieChart>
           <Pie
             data={chartData}
+            dataKey="value"
+            nameKey="name"
             cx="50%"
             cy="50%"
             innerRadius={60}
             outerRadius={80}
-            paddingAngle={5}
-            dataKey="value"
-            label={({ name, value }) => `${name}: ${value}%`}
-          >
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={entry.color} />
-            ))}
-          </Pie>
-          <Tooltip 
-            formatter={(value: number) => `${value}%`}
-            contentStyle={{
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              padding: '8px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-            }}
+            label
           />
+          <Legend />
+          <Tooltip />
         </PieChart>
       </ResponsiveContainer>
     </div>
@@ -168,9 +141,8 @@ const Index = () => {
   const fetchRedditData = async (query: string) => {
     try {
       setIsLoading(true);
-      const BACKEND_URL = import.meta.env.VITE_API_URL || 'https://reddit-scraper-backend.netlify.app';
       const response = await fetch(
-        `${BACKEND_URL}/api/reddit/search/${encodeURIComponent(query)}`
+        `http://localhost:8080/api/reddit/search/${encodeURIComponent(query)}`
       );
       
       if (!response.ok) {
@@ -416,7 +388,7 @@ const Index = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="bg-white p-6 rounded-lg shadow-sm border">
                 <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                  <PieChart className="w-5 h-5" />
+                  <PieChartIcon className="w-5 h-5" />
                   Sentiment Analysis
                 </h2>
                 <SentimentPieChart data={searchResults} />
@@ -496,11 +468,11 @@ const Index = () => {
                           <span>↑ {post.score}</span>
                           <span>💬 {post.num_comments}</span>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            post.sentiment.category === 'positive' ? 'bg-green-100 text-green-800' :
-                            post.sentiment.category === 'negative' ? 'bg-red-100 text-red-800' :
+                            post.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
+                            post.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
-                            {post.sentiment.category.charAt(0).toUpperCase() + post.sentiment.category.slice(1)}
+                            {post.sentiment.charAt(0).toUpperCase() + post.sentiment.slice(1)}
                           </span>
                         </div>
                       </div>
@@ -550,11 +522,11 @@ const Index = () => {
                           <span>↑ {post.score}</span>
                           <span>💬 {post.num_comments}</span>
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
-                            post.sentiment.category === 'positive' ? 'bg-green-100 text-green-800' :
-                            post.sentiment.category === 'negative' ? 'bg-red-100 text-red-800' :
+                            post.sentiment === 'positive' ? 'bg-green-100 text-green-800' :
+                            post.sentiment === 'negative' ? 'bg-red-100 text-red-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
-                            {post.sentiment.category.charAt(0).toUpperCase() + post.sentiment.category.slice(1)}
+                            {post.sentiment.charAt(0).toUpperCase() + post.sentiment.slice(1)}
                           </span>
                         </div>
                       </div>

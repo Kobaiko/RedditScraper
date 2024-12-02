@@ -19,6 +19,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Local development
+        "http://localhost:5174",  # Local development alternative port
         "https://redscrape.netlify.app",  # Production frontend
         "https://www.redscrape.netlify.app"  # Production frontend with www
     ],
@@ -130,4 +131,4 @@ async def search_reddit(query: str, limit: int = 100) -> Dict:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8080)

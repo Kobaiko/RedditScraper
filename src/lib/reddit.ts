@@ -19,17 +19,54 @@ interface RedditResponse {
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://www.reddit.com';
 
+let accessToken: string | null = null;
+let tokenExpiration: number = 0;
+
+async function getAccessToken() {
+  if (accessToken && Date.now() < tokenExpiration) {
+    return accessToken;
+  }
+
+  const clientId = import.meta.env.VITE_REDDIT_CLIENT_ID;
+  const clientSecret = import.meta.env.VITE_REDDIT_CLIENT_SECRET;
+
+  const response = await fetch('https://www.reddit.com/api/v1/access_token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${btoa(`${clientId}:${clientSecret}`)}`
+    },
+    body: 'grant_type=client_credentials'
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to get access token');
+  }
+
+  const data = await response.json();
+  accessToken = data.access_token;
+  tokenExpiration = Date.now() + (data.expires_in * 1000);
+  return accessToken;
+}
+
 export async function searchReddit(query: string) {
   try {
-    // Direct Reddit API call
+    const token = await getAccessToken();
+    
+    const headers = new Headers({
+      'Authorization': `Bearer ${token}`,
+      'User-Agent': 'SentimentAnalyzer/1.0'
+    });
+
     const response = await fetch(
-      `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=100`
+      `https://oauth.reddit.com/search?q=${encodeURIComponent(query)}&limit=100`,
+      { headers }
     );
     
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const data = await response.json();
     const posts = data.data.children;
     
