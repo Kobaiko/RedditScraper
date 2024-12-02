@@ -21,9 +21,8 @@ app.add_middleware(
         "http://localhost:5173",
         "http://localhost:5174",
         "https://redscrape.iamgrowth.co",
-        "http://redscrape.iamgrowth.co",
-        "https://reddit-scraper-backend.iamgrowth.co",
-        "http://reddit-scraper-backend.iamgrowth.co"
+        "https://reddit-scraper-backend.netlify.app",
+        "https://redscrape.netlify.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
