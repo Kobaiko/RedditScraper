@@ -18,18 +18,19 @@ exports.handler = async function(event, context) {
   }
 
   try {
-    // Simple test response
+    // Return mock data matching the expected structure
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        message: 'Function is working',
-        path: event.path,
-        query: event.path.split('/').pop(),
-        env: {
-          clientId: process.env.REDDIT_CLIENT_ID ? 'Present' : 'Missing',
-          clientSecret: process.env.REDDIT_CLIENT_SECRET ? 'Present' : 'Missing'
-        }
+        posts: [],
+        overall_sentiment: {
+          positive: 0,
+          negative: 0,
+          neutral: 0
+        },
+        subreddit_sentiment: {},
+        total_posts: 0
       })
     };
   } catch (error) {
