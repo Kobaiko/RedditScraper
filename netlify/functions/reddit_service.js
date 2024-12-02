@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { PythonShell } = require('python-shell');
 const path = require('path');
 
 exports.handler = async function(event, context) {
@@ -18,78 +18,26 @@ exports.handler = async function(event, context) {
     };
   }
 
-  // Get query from path parameters
-  const query = event.path.split('/').pop();
-  
-  if (!query) {
-    return {
-      statusCode: 400,
-      headers,
-      body: JSON.stringify({ error: 'No search query provided' })
-    };
-  }
-
   try {
-    const pythonScript = path.join(__dirname, 'reddit_script.py');
-    const pythonProcess = spawn('python3', [pythonScript, query], {
-      env: {
-        ...process.env,
-        REDDIT_CLIENT_ID: process.env.REDDIT_CLIENT_ID,
-        REDDIT_CLIENT_SECRET: process.env.REDDIT_CLIENT_SECRET
-      }
-    });
-
-    return new Promise((resolve, reject) => {
-      let dataString = '';
-      let errorString = '';
-
-      pythonProcess.stdout.on('data', (data) => {
-        dataString += data.toString();
-      });
-
-      pythonProcess.stderr.on('data', (data) => {
-        errorString += data.toString();
-      });
-
-      pythonProcess.on('close', (code) => {
-        if (code !== 0) {
-          resolve({
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: errorString || 'Python script failed' })
-          });
-          return;
-        }
-
-        try {
-          const jsonData = JSON.parse(dataString);
-          resolve({
-            statusCode: 200,
-            headers,
-            body: JSON.stringify(jsonData)
-          });
-        } catch (e) {
-          resolve({
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'Failed to parse Python output' })
-          });
-        }
-      });
-
-      pythonProcess.on('error', (err) => {
-        resolve({
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({ error: err.message })
-        });
-      });
-    });
+    // Simple test response first
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        message: 'Function is working',
+        path: event.path,
+        clientId: process.env.REDDIT_CLIENT_ID ? 'Present' : 'Missing',
+        clientSecret: process.env.REDDIT_CLIENT_SECRET ? 'Present' : 'Missing'
+      })
+    };
   } catch (error) {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: error.message })
+      body: JSON.stringify({ 
+        error: error.message,
+        stack: error.stack 
+      })
     };
   }
 };
