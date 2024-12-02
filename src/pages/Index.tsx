@@ -143,7 +143,7 @@ const Index = () => {
       setIsLoading(true);
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:8080'
-        : 'https://redscrape.iamgrowth.co';  // Use your domain
+        : '/.netlify/functions';  // Use Netlify functions path
       
       const response = await fetch(
         `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
