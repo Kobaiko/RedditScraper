@@ -21,7 +21,9 @@ app.add_middleware(
         "http://localhost:5173",  # Local development
         "http://localhost:5174",  # Local development alternative port
         "https://redscrape.netlify.app",  # Production frontend
-        "https://www.redscrape.netlify.app"  # Production frontend with www
+        "https://www.redscrape.netlify.app",  # Production frontend with www
+        "http://redscrape.iamgrowth.co",  # Custom domain
+        "https://redscrape.iamgrowth.co"  # Custom domain (secure)
     ],
     allow_credentials=True,
     allow_methods=["*"],

@@ -141,8 +141,12 @@ const Index = () => {
   const fetchRedditData = async (query: string) => {
     try {
       setIsLoading(true);
+      const API_URL = window.location.hostname === 'localhost' 
+        ? 'http://localhost:8080'
+        : 'https://reddit-scraper-backend.netlify.app';
+      
       const response = await fetch(
-        `http://localhost:8080/api/reddit/search/${encodeURIComponent(query)}`
+        `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
       );
       
       if (!response.ok) {
