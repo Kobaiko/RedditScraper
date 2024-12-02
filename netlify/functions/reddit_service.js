@@ -104,121 +104,95 @@ function analyzeSentiment(text, score = 0, numComments = 0, created = '') {
   
   const words = text.split(/\s+/);
   
-  // Calculate engagement metrics
-  const engagementScore = calculateEngagementScore(score, numComments);
-  
-  // Calculate content metrics
-  const contentScore = calculateContentScore(text, words);
-  
-  // Calculate time-based metrics
-  const timeScore = calculateTimeScore(created);
-  
-  // Combine all factors with appropriate weights
-  const finalScore = (
-    contentScore * 0.6 +    // Content is most important
-    engagementScore * 0.3 + // Engagement is second
-    timeScore * 0.1         // Time decay has least impact
-  );
-
-  // Very aggressive thresholds favoring negative sentiment
-  if (finalScore > 0.5) return 'positive';
-  if (finalScore < -0.1) return 'negative'; // Much easier to be negative
-  return 'neutral';
-}
-
-function calculateEngagementScore(score, numComments) {
-  let engagementScore = 0;
-
-  // Negative comments are more likely on controversial posts
-  if (numComments > 100) {
-    engagementScore -= 0.2;
-  }
-  if (numComments > 500) {
-    engagementScore -= 0.3;
-  }
-
-  // Very negative scores should count more than very positive ones
-  if (score < 0) {
-    engagementScore += Math.log(Math.abs(score) + 1) * Math.sign(score) * 0.3;
-  } else {
-    engagementScore += Math.log(Math.abs(score) + 1) * Math.sign(score) * 0.15;
-  }
-
-  return engagementScore;
-}
-
-function calculateContentScore(text, words) {
-  let contentScore = 0;
-  let wordCount = 0;
-
-  // Sentiment dictionaries with weighted scores
+  // Security software specific sentiment dictionary
   const sentimentDict = {
     // Strong negative terms (-2)
-    'terrible': -2, 'horrible': -2, 'awful': -2, 'worst': -2, 'hate': -2,
-    'disaster': -2, 'fail': -2, 'failed': -2, 'failing': -2, 'useless': -2,
-    'garbage': -2, 'waste': -2, 'scam': -2, 'broken': -2, 'unusable': -2,
-    'crash': -2, 'crashes': -2, 'bug': -2, 'bugs': -2, 'error': -2,
-    'errors': -2, 'poor': -2, 'disappointed': -2, 'disappointing': -2,
-    'avoid': -2, 'awful': -2, 'terrible': -2, 'horrible': -2,
+    'virus': -2, 'malware': -2, 'scam': -2, 'spyware': -2, 'ransomware': -2,
+    'trojan': -2, 'infected': -2, 'dangerous': -2, 'suspicious': -2,
+    'bloatware': -2, 'adware': -2, 'keylogger': -2, 'exploit': -2,
+    'breach': -2, 'compromised': -2, 'fraud': -2, 'spam': -2,
+    'impossible': -2, 'terrible': -2, 'horrible': -2, 'garbage': -2,
     
     // Moderate negative terms (-1)
-    'bad': -1, 'issue': -1, 'issues': -1, 'problem': -1, 'problems': -1,
-    'slow': -1, 'difficult': -1, 'hard': -1, 'confusing': -1, 'confused': -1,
-    'expensive': -1, 'pricey': -1, 'costly': -1, 'overpriced': -1,
-    'annoying': -1, 'frustrating': -1, 'mediocre': -1, 'meh': -1,
-    'lacking': -1, 'missing': -1, 'weak': -1, 'unstable': -1,
+    'slow': -1, 'heavy': -1, 'resource': -1, 'cpu': -1, 'memory': -1,
+    'expensive': -1, 'costly': -1, 'price': -1, 'crash': -1, 'bug': -1,
+    'issue': -1, 'problem': -1, 'error': -1, 'warning': -1, 'cant': -1,
+    'difficult': -1, 'annoying': -1, 'uninstall': -1,
+    
+    // Neutral/Question terms (0)
+    'how': 0, 'what': 0, 'why': 0, 'where': 0, 'when': 0,
+    'install': 0, 'download': 0, 'update': 0, 'help': 0,
+    'difference': 0, 'compare': 0, 'versus': 0, 'vs': 0,
+    'recommend': 0, 'suggestion': 0, 'opinion': 0, 'experience': 0,
     
     // Moderate positive terms (1)
-    'good': 1, 'nice': 1, 'okay': 1, 'decent': 1, 'fine': 1,
-    'works': 1, 'working': 1, 'helpful': 1, 'useful': 1, 'stable': 1,
-    'clean': 1, 'simple': 1, 'easy': 1, 'smooth': 1, 'solid': 1,
+    'good': 1, 'works': 1, 'working': 1, 'stable': 1, 'reliable': 1,
+    'clean': 1, 'safe': 1, 'secure': 1, 'protect': 1, 'light': 1,
+    'fast': 1, 'quick': 1, 'efficient': 1, 'effective': 1,
+    'helpful': 1, 'useful': 1, 'worth': 1,
     
-    // Strong positive terms (1.5 - intentionally weaker than negative)
-    'great': 1.5, 'excellent': 1.5, 'amazing': 1.5, 'awesome': 1.5,
-    'perfect': 1.5, 'fantastic': 1.5, 'wonderful': 1.5, 'best': 1.5,
-    'love': 1.5, 'superb': 1.5, 'outstanding': 1.5, 'brilliant': 1.5
+    // Strong positive terms (2)
+    'excellent': 2, 'perfect': 2, 'best': 2, 'recommended': 2,
+    'great': 2, 'awesome': 2, 'amazing': 2, 'fantastic': 2,
+    'trustworthy': 2, 'reliable': 2, 'legitimate': 2, 'genuine': 2
   };
 
-  // Check for negations that flip sentiment
-  const negations = ['not', 'no', 'never', 'dont', 'doesn\'t', 'isnt', 'cant', 'wont', 'wouldn\'t'];
-  
-  // First pass: basic sentiment
+  // Question/help-seeking patterns (neutral)
+  const neutralPatterns = [
+    'is it safe', 'is it legit', 'how to', 'how do i',
+    'what is', 'anyone use', 'worth it', 'should i',
+    'looking for', 'need help', 'question about'
+  ];
+
+  // Warning/negative patterns
+  const warningPatterns = [
+    'dont install', 'do not install', 'stay away',
+    'waste of', 'not worth', 'cant remove', 'cant uninstall'
+  ];
+
+  let sentimentScore = 0;
+  let wordCount = 0;
+
+  // Check for neutral patterns first
+  for (const pattern of neutralPatterns) {
+    if (text.includes(pattern)) {
+      return 'neutral';
+    }
+  }
+
+  // Check for warning patterns
+  for (const pattern of warningPatterns) {
+    if (text.includes(pattern)) {
+      return 'negative';
+    }
+  }
+
+  // Calculate word-based sentiment
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
     if (sentimentDict[word] !== undefined) {
-      // Check for preceding negation
-      if (i > 0 && negations.includes(words[i-1])) {
-        contentScore -= sentimentDict[word] * 1.5; // Negated terms count more
-      } else {
-        contentScore += sentimentDict[word];
-      }
+      sentimentScore += sentimentDict[word];
       wordCount++;
     }
   }
 
-  // Look for complaint patterns
-  const complaintPatterns = [
-    'why does', 'why do', 'how come', 'what happened',
-    'anyone else', 'is it just me', 'doesn\'t work'
-  ];
-  
-  complaintPatterns.forEach(pattern => {
-    if (text.includes(pattern)) {
-      contentScore -= 0.5;
-    }
-  });
-
-  // Normalize by word count, but maintain some impact of multiple sentiments
-  if (wordCount > 0) {
-    contentScore = contentScore / Math.sqrt(wordCount);
+  // If no sentiment words found, return neutral
+  if (wordCount === 0) {
+    return 'neutral';
   }
 
-  return contentScore;
-}
+  // Normalize score
+  sentimentScore = sentimentScore / Math.sqrt(wordCount);
 
-function calculateTimeScore(created) {
-  if (!created) return 0;
-  
-  const ageInDays = (Date.now() - new Date(created * 1000).getTime()) / (1000 * 60 * 60 * 24);
-  return 1 / (1 + ageInDays * 0.05);
+  // Add karma influence (reduced weight)
+  if (score) {
+    const karmaInfluence = Math.log(Math.abs(score) + 1) * Math.sign(score) * 0.1;
+    sentimentScore += karmaInfluence;
+  }
+
+  // More balanced thresholds for security software context
+  if (sentimentScore > 0.3) return 'positive';
+  if (sentimentScore < -0.3) return 'negative';
+  return 'neutral';
+}
 }
