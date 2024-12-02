@@ -58,7 +58,7 @@ exports.handler = async function(event, context) {
       subreddit: child.data.subreddit,
       url: child.data.url,
       selftext: child.data.selftext || '',
-      sentiment: analyzeSentiment(child.data.title + ' ' + (child.data.selftext || ''))
+      sentiment: analyzeSentiment(child.data.title + ' ' + (child.data.selftext || ''), child.data.score, child.data.num_comments, child.data.created_utc)
     }));
 
     // Calculate sentiment stats
@@ -95,60 +95,71 @@ exports.handler = async function(event, context) {
   }
 };
 
-// Simple sentiment analysis function
-function analyzeSentiment(text) {
-  const positiveWords = [
-    'good', 'great', 'awesome', 'excellent', 'happy', 'love', 'wonderful', 'fantastic',
-    'best', 'amazing', 'brilliant', 'perfect', 'better', 'beautiful', 'win', 'winning',
-    'success', 'successful', 'impressive', 'innovative', 'improvement', 'improved',
-    'helpful', 'positive', 'interesting', 'excited', 'exciting', 'nice', 'cool',
-    'recommend', 'recommended', 'works', 'working', 'well', 'solved', 'solution',
-    'support', 'supported', 'like', 'good', 'great', 'love', 'awesome', 'nice', 'amazing'
-  ];
-
-  const negativeWords = [
-    'bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'poor', 'disaster',
-    'worst', 'broken', 'bug', 'issue', 'problem', 'fail', 'failed', 'failing',
-    'disappointed', 'disappointing', 'useless', 'waste', 'difficult', 'hard',
-    'impossible', 'angry', 'mad', 'frustrated', 'frustrating', 'annoying',
-    'annoyed', 'slow', 'expensive', 'costly', 'cost', 'negative', 'wrong',
-    'error', 'errors', 'crash', 'crashes', 'crashed', 'bug', 'bugs', 'broken',
-    'unusable', 'confusing', 'confused', 'problem', 'problems', 'issue', 'issues'
-  ];
+// Sentiment analysis with Reddit-specific adjustments
+function analyzeSentiment(text, score = 0, numComments = 0, created = '') {
+  // Clean and normalize text
+  text = text.toLowerCase()
+    .replace(/https?:\/\/\S+/g, '')  // Remove URLs
+    .replace(/[^\w\s]/g, ' ')        // Remove special characters
+    .trim();
   
-  text = text.toLowerCase();
   const words = text.split(/\s+/);
   
-  // Count word occurrences for more accurate scoring
-  let positiveScore = 0;
-  let negativeScore = 0;
+  // Base sentiment calculation
+  let baseSentiment = 0;
   
-  words.forEach(word => {
-    if (positiveWords.includes(word)) positiveScore++;
-    if (negativeWords.includes(word)) negativeScore++;
-  });
-
-  // Add weight based on certain phrases
-  const phrases = {
-    positive: ['highly recommend', 'really good', 'very good', 'works great', 'much better', 'really like'],
-    negative: ['dont recommend', 'doesnt work', 'not working', 'waste of', 'too expensive', 'very bad']
+  // Word-based scoring with Reddit-specific terms
+  const sentimentWords = {
+    positive: {
+      // General positive
+      'good': 0.3, 'great': 0.4, 'awesome': 0.5, 'excellent': 0.5, 'amazing': 0.5,
+      'love': 0.4, 'perfect': 0.5, 'best': 0.4, 'nice': 0.3, 'thanks': 0.3,
+      // Reddit-specific positive
+      'upvote': 0.3, 'helpful': 0.4, 'interesting': 0.3, 'til': 0.2, 'op': 0.1,
+      'wholesome': 0.5, 'underrated': 0.3, 'quality': 0.3,
+      // Tech/gaming positive
+      'works': 0.3, 'fixed': 0.4, 'solved': 0.4, 'improved': 0.3
+    },
+    negative: {
+      // General negative
+      'bad': -0.3, 'terrible': -0.5, 'awful': -0.5, 'horrible': -0.5, 'worst': -0.5,
+      'hate': -0.4, 'poor': -0.3, 'garbage': -0.4, 'waste': -0.4,
+      // Reddit-specific negative
+      'repost': -0.3, 'downvote': -0.3, 'toxic': -0.4, 'cringe': -0.3,
+      'clickbait': -0.4, 'spam': -0.4,
+      // Tech/gaming negative
+      'bug': -0.3, 'broken': -0.4, 'crash': -0.4, 'issue': -0.3, 'problem': -0.3
+    }
   };
 
-  phrases.positive.forEach(phrase => {
-    if (text.includes(phrase)) positiveScore += 2;
+  // Calculate base sentiment from words
+  words.forEach(word => {
+    baseSentiment += sentimentWords.positive[word] || 0;
+    baseSentiment += sentimentWords.negative[word] || 0;
   });
 
-  phrases.negative.forEach(phrase => {
-    if (text.includes(phrase)) negativeScore += 2;
-  });
+  // Normalize base sentiment to [-1, 1]
+  baseSentiment = Math.max(-1, Math.min(1, baseSentiment));
 
-  // Consider text length in scoring
-  const threshold = Math.max(1, Math.floor(words.length / 50)); // Adjust threshold based on text length
+  // Context adjustments
+  const karmaFactor = score ? Math.log(Math.abs(score) + 1) * Math.sign(score) * 0.1 : 0;
+  const commentFactor = numComments ? Math.log(numComments + 1) * 0.1 : 0;
   
-  if (positiveScore > negativeScore && positiveScore >= threshold) return 'positive';
-  if (negativeScore > positiveScore && negativeScore >= threshold) return 'negative';
-  if (positiveScore === negativeScore && positiveScore >= threshold) return 'positive';
-  if (positiveScore === negativeScore && positiveScore > 0) return 'neutral';
-  if (positiveScore === 0 && negativeScore === 0) return 'neutral';
-  return positiveScore > negativeScore ? 'positive' : 'negative';
+  // Time decay (newer posts get slightly higher weight)
+  const ageInDays = created ? (Date.now() - new Date(created).getTime()) / (1000 * 60 * 60 * 24) : 0;
+  const timeDecay = 1 / (1 + ageInDays * 0.1);
+
+  // Length factor (longer posts need stronger sentiment to be classified)
+  const lengthFactor = 1 + Math.min(words.length / 100, 0.5);
+
+  // Combine all factors
+  let finalScore = (baseSentiment + karmaFactor + commentFactor) * timeDecay * lengthFactor;
+  
+  // Clamp final score to [-1, 1]
+  finalScore = Math.max(-1, Math.min(1, finalScore));
+
+  // Classify sentiment with wider neutral range
+  if (finalScore > 0.3) return 'positive';
+  if (finalScore < -0.3) return 'negative';
+  return 'neutral';
 }
