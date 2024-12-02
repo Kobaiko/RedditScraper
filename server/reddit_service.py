@@ -69,7 +69,7 @@ def analyze_sentiment(text: str) -> str:
     else:
         return "neutral"
 
-@app.get("/api/reddit/search/{query}")
+@app.get("/reddit/search/{query}")
 async def search_reddit(query: str, limit: int = 100) -> Dict:
     try:
         # Check rate limit before processing

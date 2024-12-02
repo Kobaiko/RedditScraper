@@ -142,11 +142,11 @@ const Index = () => {
     try {
       setIsLoading(true);
       const API_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:8080'
-        : '/.netlify/functions';  // Use Netlify functions path
+        ? 'http://localhost:8080/api'
+        : '/.netlify/functions/reddit_service';  // Point directly to the function
       
       const response = await fetch(
-        `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
+        `${API_URL}/reddit/search/${encodeURIComponent(query)}`
       );
       
       if (!response.ok) {
