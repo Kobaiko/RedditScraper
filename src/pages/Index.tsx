@@ -143,7 +143,7 @@ const Index = () => {
       setIsLoading(true);
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:8080'
-        : 'https://redscrape.iamgrowth.co';  // Use the same domain for backend
+        : window.location.origin;  // Use the same origin in production
       
       const response = await fetch(
         `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
