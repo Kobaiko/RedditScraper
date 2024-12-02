@@ -143,7 +143,7 @@ const Index = () => {
       setIsLoading(true);
       const API_URL = window.location.hostname === 'localhost' 
         ? 'http://localhost:8080'
-        : 'https://reddit-scraper-backend.iamgrowth.co';  // Use dedicated backend URL
+        : window.location.origin;  // Use the same domain in production
       
       const response = await fetch(
         `${API_URL}/api/reddit/search/${encodeURIComponent(query)}`
