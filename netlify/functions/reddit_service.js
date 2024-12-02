@@ -239,4 +239,3 @@ function calculateSentimentScore(text, words) {
   // Normalize score but maintain impact of multiple sentiments
   return wordCount > 0 ? score / Math.sqrt(wordCount) : 0;
 }
-}
