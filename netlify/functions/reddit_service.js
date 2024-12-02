@@ -97,14 +97,58 @@ exports.handler = async function(event, context) {
 
 // Simple sentiment analysis function
 function analyzeSentiment(text) {
-  const positiveWords = ['good', 'great', 'awesome', 'excellent', 'happy', 'love', 'wonderful', 'fantastic'];
-  const negativeWords = ['bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'poor', 'disaster'];
+  const positiveWords = [
+    'good', 'great', 'awesome', 'excellent', 'happy', 'love', 'wonderful', 'fantastic',
+    'best', 'amazing', 'brilliant', 'perfect', 'better', 'beautiful', 'win', 'winning',
+    'success', 'successful', 'impressive', 'innovative', 'improvement', 'improved',
+    'helpful', 'positive', 'interesting', 'excited', 'exciting', 'nice', 'cool',
+    'recommend', 'recommended', 'works', 'working', 'well', 'solved', 'solution',
+    'support', 'supported', 'like', 'good', 'great', 'love', 'awesome', 'nice', 'amazing'
+  ];
+
+  const negativeWords = [
+    'bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'poor', 'disaster',
+    'worst', 'broken', 'bug', 'issue', 'problem', 'fail', 'failed', 'failing',
+    'disappointed', 'disappointing', 'useless', 'waste', 'difficult', 'hard',
+    'impossible', 'angry', 'mad', 'frustrated', 'frustrating', 'annoying',
+    'annoyed', 'slow', 'expensive', 'costly', 'cost', 'negative', 'wrong',
+    'error', 'errors', 'crash', 'crashes', 'crashed', 'bug', 'bugs', 'broken',
+    'unusable', 'confusing', 'confused', 'problem', 'problems', 'issue', 'issues'
+  ];
   
   text = text.toLowerCase();
-  let positiveCount = positiveWords.filter(word => text.includes(word)).length;
-  let negativeCount = negativeWords.filter(word => text.includes(word)).length;
+  const words = text.split(/\s+/);
   
-  if (positiveCount > negativeCount) return 'positive';
-  if (negativeCount > positiveCount) return 'negative';
-  return 'neutral';
+  // Count word occurrences for more accurate scoring
+  let positiveScore = 0;
+  let negativeScore = 0;
+  
+  words.forEach(word => {
+    if (positiveWords.includes(word)) positiveScore++;
+    if (negativeWords.includes(word)) negativeScore++;
+  });
+
+  // Add weight based on certain phrases
+  const phrases = {
+    positive: ['highly recommend', 'really good', 'very good', 'works great', 'much better', 'really like'],
+    negative: ['dont recommend', 'doesnt work', 'not working', 'waste of', 'too expensive', 'very bad']
+  };
+
+  phrases.positive.forEach(phrase => {
+    if (text.includes(phrase)) positiveScore += 2;
+  });
+
+  phrases.negative.forEach(phrase => {
+    if (text.includes(phrase)) negativeScore += 2;
+  });
+
+  // Consider text length in scoring
+  const threshold = Math.max(1, Math.floor(words.length / 50)); // Adjust threshold based on text length
+  
+  if (positiveScore > negativeScore && positiveScore >= threshold) return 'positive';
+  if (negativeScore > positiveScore && negativeScore >= threshold) return 'negative';
+  if (positiveScore === negativeScore && positiveScore >= threshold) return 'positive';
+  if (positiveScore === negativeScore && positiveScore > 0) return 'neutral';
+  if (positiveScore === 0 && negativeScore === 0) return 'neutral';
+  return positiveScore > negativeScore ? 'positive' : 'negative';
 }
